@@ -12,24 +12,26 @@
 
 #define MAX_EVENTS 10
 #define BUFFER_SIZE 1024
-#define PORT 12345
+#define PORT 1234
+
+using namespace std;
 
 // Struktura gracza
 struct Player {
-    std::string nickname;
+    string nickname;
     int score = 0;
     bool isInGame = false;
 };
 
-std::unordered_map<int, Player> players; // Mapa deskryptorów do graczy
-std::unordered_set<std::string> nicknames; // Zbiór zajętych nicków
+unordered_map<int, Player> players; // Mapa deskryptorów do graczy
+unordered_set<string> nicknames; // Zbiór zajętych nicków
 
 void setNonBlocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
     fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
-void broadcast(const std::string &message, int excludeFd = -1) {
+void broadcast(const string &message, int excludeFd = -1) {
     for (const auto &pair : players) {
         if (pair.first != excludeFd) {
             send(pair.first, message.c_str(), message.size(), 0);
@@ -37,15 +39,17 @@ void broadcast(const std::string &message, int excludeFd = -1) {
     }
 }
 
-void handleClientInput(int clientFd, const std::string &input) {
+void handleClientInput(int clientFd, const string &input) {
     if (players[clientFd].nickname.empty()) { // Oczekiwanie na nick
         if (nicknames.find(input) != nicknames.end()) {
-            send(clientFd, "Nick zajęty. Enter another: ", 38, 0);
+            const char * notAvailable =  "Nick zajęty. Wybierz inny: ";
+            send(clientFd, notAvailable, strlen(notAvailable), 0);
         } else {
             players[clientFd].nickname = input;
             nicknames.insert(input);
-            send(clientFd, "Nickname accepted! You can now chat.\n", 37, 0);
-            broadcast("Player " + input + " has joined the game.\n", clientFd);
+            const char* acceptedNick = "Nick zaakceptowany! Milej gry.\n";
+            send(clientFd, acceptedNick, strlen(acceptedNick), 0);
+            broadcast("Gracz " + input + " dolaczyl do gry.\n", clientFd);
         }
     } else {
         broadcast(players[clientFd].nickname + ": " + input + "\n", clientFd);
@@ -65,6 +69,9 @@ int main() {
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.s_addr = INADDR_ANY;
     serverAddr.sin_port = htons(PORT);
+
+    const int one = 1;
+    setsockopt(serverFd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
 
     if (bind(serverFd, (struct sockaddr *)&serverAddr, sizeof(serverAddr)) == -1) {
         perror("bind");
@@ -96,7 +103,7 @@ int main() {
         return 1;
     }
 
-    std::cout << "Server started on port " << PORT << std::endl;
+    cout << "Serwer dziala na porcie " << PORT << endl;
 
     while (true) {
         int numEvents = epoll_wait(epollFd, events, MAX_EVENTS, -1);
@@ -127,7 +134,8 @@ int main() {
                 }
 
                 players[clientFd] = Player{};
-                send(clientFd, "Welcome! Please enter your nickname: ", 38, 0);
+                const char * powitanie = "Witaj! Wprowadz swoj nick!: ";
+                send(clientFd, powitanie, strlen(powitanie), 0);
             } else {
                 int clientFd = events[i].data.fd;
                 char buffer[BUFFER_SIZE];
@@ -148,10 +156,10 @@ int main() {
                     close(clientFd);
                     epoll_ctl(epollFd, EPOLL_CTL_DEL, clientFd, nullptr);
                     nicknames.erase(players[clientFd].nickname);
-                    broadcast("Player " + players[clientFd].nickname + " has left the game.\n");
+                    broadcast("Gracz " + players[clientFd].nickname + " opuscil gre.\n");
                     players.erase(clientFd);
                 } else {
-                    std::string input(buffer, bytesRead);
+                    string input(buffer, bytesRead);
                     handleClientInput(clientFd, input);
                 }
             }

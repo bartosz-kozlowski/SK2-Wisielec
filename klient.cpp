@@ -8,6 +8,8 @@
 #include <fcntl.h>
 #include <sys/epoll.h>
 
+using namespace std;
+
 #define BUFFER_SIZE 1024
 #define MAX_EVENTS 10
 
@@ -26,7 +28,8 @@ void handleServerResponse(int socket, int epollFd) {
         epoll_ctl(epollFd, EPOLL_CTL_DEL, socket, nullptr);
         exit(0);
     }
-    std::cout << buffer;
+    write(1, buffer, bytesReceived);
+    //cout << buffer << endl;
 }
 
 void handleUserInput(int socket) {
@@ -39,7 +42,7 @@ void handleUserInput(int socket) {
 
 int main() {
     const char *serverIp = "127.0.0.1";
-    const int serverPort = 12345;
+    const int serverPort = 1234;
 
     int clientSocket = socket(AF_INET, SOCK_STREAM, 0);
     if (clientSocket == -1) {
@@ -109,7 +112,8 @@ int main() {
                 handleServerResponse(clientSocket, epollFd);
             } else if (events[i].data.fd == stdinFd) {
                 if (!nicknameAccepted) {
-                    std::cout << "Enter your nickname: ";
+                    //cout << "Enter your nickname (klient): ";
+                    cout << "Wbilem" << endl;
                     handleUserInput(clientSocket);
                     nicknameAccepted = true; // Assume the server will handle duplicates and respond accordingly
                 } else {
