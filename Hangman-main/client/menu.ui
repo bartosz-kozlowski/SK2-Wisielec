@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>menu</class>
+ <widget class="QDialog" name="menu">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>400</width>
+    <height>300</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Dialog</string>
+  </property>
+  <widget class="QPushButton" name="joinBtn">
+   <property name="geometry">
+    <rect>
+     <x>40</x>
+     <y>20</y>
+     <width>301</width>
+     <height>26</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Dolacz do gry</string>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="rulesBtn">
+   <property name="geometry">
+    <rect>
+     <x>40</x>
+     <y>60</y>
+     <width>301</width>
+     <height>26</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Zasady</string>
+   </property>
+  </widget>
+  <widget class="QTextEdit" name="Komunikaty">
+   <property name="geometry">
+    <rect>
+     <x>50</x>
+     <y>110</y>
+     <width>291</width>
+     <height>70</height>
+    </rect>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="nickBtn">
+   <property name="geometry">
+    <rect>
+     <x>50</x>
+     <y>230</y>
+     <width>291</width>
+     <height>26</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Ustaw nick</string>
+   </property>
+  </widget>
+  <widget class="QLineEdit" name="Wiadomosc">
+   <property name="geometry">
+    <rect>
+     <x>50</x>
+     <y>200</y>
+     <width>291</width>
+     <height>26</height>
+    </rect>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="conectBtn">
+   <property name="geometry">
+    <rect>
+     <x>50</x>
+     <y>260</y>
+     <width>291</width>
+     <height>26</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Connect</string>
+   </property>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
