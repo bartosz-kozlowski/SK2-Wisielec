@@ -15,6 +15,7 @@ MyWidget::MyWidget(QWidget *parent) : QWidget(parent), ui(new Ui::MyWidget), sce
     ui->Komunikaty->setReadOnly(true);
     ui->KomunikatyGeneral->setReadOnly(true);
     ui->Haslo->setReadOnly(true);
+    ui->Time->setReadOnly(true);
 
     this->setStyleSheet(
         "QPushButton {"
@@ -233,7 +234,7 @@ void MyWidget::setTime(QString currentText){
 }
 void MyWidget::setWaitingRoom(QString currentText){
     //poczekalnia
-    qDebug() << "Katalog roboczy aplikacji:" << QDir::currentPath();
+    //qDebug() << "Katalog roboczy aplikacji:" << QDir::currentPath();
     QString imagePath = "images/waitingCat.jpg";
     QPixmap pixmap(imagePath);
     if (!pixmap.isNull()) {
@@ -244,6 +245,7 @@ void MyWidget::setWaitingRoom(QString currentText){
     } else {
         ui->Komunikaty->append("<b>Nie udało się załadować obrazu:</b> " + imagePath);
     }
+    ui->Time->clear();
     // Skalowanie obrazu w widoku
     ui->Image->fitInView(scene->sceneRect(), Qt::KeepAspectRatio);
     ui->Komunikaty->append(currentText);
@@ -251,7 +253,7 @@ void MyWidget::setWaitingRoom(QString currentText){
 }
 void MyWidget::setNickname(QString currentText){
     //ustawienie nicku klienta na taki zakceptowany przez serwer
-    qDebug() << "Ustawiam nick na:" << currentText;
+    //qDebug() << "Ustawiam nick na:" << currentText;
     nickname = currentText;
     ui->Nick->setText(nickname);
     ui->NickGroup->setEnabled(false);
@@ -277,7 +279,7 @@ void MyWidget::socketReadable() {
         // Podział na typ i treść komunikatu
         int colonIndex = message.indexOf(';');
         if (colonIndex == -1) {
-            qWarning() << "Niepoprawny format komunikatu: " << message;
+            //qWarning() << "Niepoprawny format komunikatu: " << message;
             continue; // Pomijamy niepoprawne komunikaty
         }
 
@@ -304,7 +306,7 @@ void MyWidget::socketReadable() {
         } else if (currentType == "02") {
             setNickname(currentText);
         } else {
-            qWarning() << "Nieobsługiwany typ komunikatu: " << currentType;
+            //qWarning() << "Nieobsługiwany typ komunikatu: " << currentType << "  " << currentText;
         }
     }
 }
@@ -346,7 +348,8 @@ void MyWidget::exitBtnHit() {
     ui->talkGroup->setEnabled(false);
     ui->Wiadomosc->clear();
     ui->Ranking->clear();
-    ui->Nick->clear();
+    ui->Time->clear();
+    //ui->Nick->clear();
     ui->Komunikaty->clear();
     ui->Image->scene()->clear();
     ui->KomunikatyGeneral->clear();
