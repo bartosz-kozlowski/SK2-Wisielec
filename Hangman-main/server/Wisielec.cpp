@@ -27,9 +27,11 @@ int countdown = 90 * 1000; //czas ktory pozostal do konca rundy - w milisekundac
 bool startGame = false; //czy trwa aktualnie jakas gra
 auto lastTime = chrono::steady_clock::now(); //ustawienie pomiaru czasu
 int activePlayers = 0; //liczba aktywnych graczy - w pokoju
+int playersInGame = 0; //liczba graczy w rozgrywce
 int efd; //epoll descriptor
 chrono::steady_clock::time_point firstCorrectGuessTime;
 bool firstGuessMade = false;
+int answerDelay = 500; //po jakim czasie moze przyjsc kolejna odpowiedz zeby uznac ze gracze odpowiedzieli w tym samymm czasie
 mt19937 rng(random_device{}());
 // Struktura gracza
 struct Player {
@@ -63,31 +65,34 @@ void broadcast(const string &message, int excludeFd, int flag) {
     string formattedMessage = to_string(flag) + ";" + message + "&";
     for (const auto &pair : players) {
         if (pair.first != excludeFd) {
-            int n = send(pair.first, formattedMessage.c_str(), formattedMessage.size(), 0);
-            if (n == -1 || n < static_cast<int>(formattedMessage.size())) {
-                perror("send");
-                close(pair.first);
-                epoll_ctl(efd, EPOLL_CTL_DEL, pair.first, nullptr);
-                nicknames.erase(players[pair.first].nickname);
-                if (players[pair.first].playerStatus != 2) {
-                    activePlayers--;
-                }
-                players.erase(pair.first);
-                //jezeli nie ma juz graczy aktywnych zresetuj ustawienia gry
-                if (activePlayers == 0 or players.size() == 0) {
-                    countdown = 90*1000;
-                    startGame = false;
-                }
-                string scoreBoard;
-                for (const auto &pair : players) {
-                    if (!pair.second.nickname.empty() and pair.second.playerStatus != 2) {
-                        scoreBoard += pair.second.nickname + ":" + to_string(pair.second.score) + ":" +
-                        to_string(pair.second.hangman) + ":"+
-                            to_string(pair.second.playerStatus)+"\n";
+            if(players[pair.first].playerStatus != 2  and (flag == 0 or flag == 1 or flag == 2 or flag == 3  or flag == 4 or flag == 6)){
+                int n = send(pair.first, formattedMessage.c_str(), formattedMessage.size(), 0);
+                if (n == -1 || n < static_cast<int>(formattedMessage.size())) {
+                    perror("send");
+                    close(pair.first);
+                    epoll_ctl(efd, EPOLL_CTL_DEL, pair.first, nullptr);
+                    nicknames.erase(players[pair.first].nickname);
+                    if (players[pair.first].playerStatus != 2) {
+                        activePlayers--;
                     }
-                }
-                if (!scoreBoard.empty()) {
-                    broadcast(scoreBoard, -1, 1);
+                    players.erase(pair.first);
+                    //jezeli nie ma juz graczy aktywnych zresetuj ustawienia gry
+                    if (activePlayers == 0 or players.size() == 0 or playersInGame == 0) {
+                        firstGuessMade = false;
+                        countdown = 90*1000;
+                        startGame = false;
+                    }
+                    string scoreBoard;
+                    for (const auto &pair : players) {
+                        if (!pair.second.nickname.empty() and pair.second.playerStatus != 2) {
+                            scoreBoard += pair.second.nickname + ":" + to_string(pair.second.score) + ":" +
+                                          to_string(pair.second.hangman) + ":"+
+                                          to_string(pair.second.playerStatus)+"\n";
+                        }
+                    }
+                    if (!scoreBoard.empty()) {
+                        broadcast(scoreBoard, -1, 1);
+                    }
                 }
             }
         }
@@ -103,16 +108,18 @@ void createScoreBoard() {
     for (const auto &pair : players) {
         if (!pair.second.nickname.empty() and pair.second.playerStatus != 2) {
             scoreBoard += pair.second.nickname + ":" + to_string(pair.second.score) + ":" +
-            to_string(pair.second.hangman) + ":"+
-                to_string(pair.second.playerStatus)+"\n";
+                          to_string(pair.second.hangman) + ":"+
+                          to_string(pair.second.playerStatus)+"\n";
         }
     }
     if (!scoreBoard.empty()) {
         broadcast(scoreBoard, -1, 1);
     }
 }
+void resetGame();
 // usuwanie gracza - na skutek rozlaczenia sie
 void deletePlayer(int clientFd) {
+    shutdown(clientFd, SHUT_RDWR);
     close(clientFd);
     epoll_ctl(efd, EPOLL_CTL_DEL, clientFd, nullptr);
     nicknames.erase(players[clientFd].nickname);
@@ -121,11 +128,23 @@ void deletePlayer(int clientFd) {
     if (players[clientFd].playerStatus != 2) {
         activePlayers--;
     }
+    if(players[clientFd].playerStatus == 1) {
+        playersInGame--;
+    }
     players.erase(clientFd);
     //jezeli nie ma juz graczy aktywnych zresetuj ustawienia gry
-    if (activePlayers == 0 or players.size() == 0) {
-        countdown = 90*1000;
+    if (activePlayers == 0 || playersInGame == 0) {
+        countdown = 90 * 1000;
         startGame = false;
+        firstGuessMade = false;
+
+        if (activePlayers >= 2) {
+            resetGame();
+            lastTime = std::chrono::steady_clock::now();
+            startGame = true;
+        }
+
+        createScoreBoard();
         return;
     }
     createScoreBoard();
@@ -138,18 +157,15 @@ void resetPassword(int fd) {
     string message = "2;" +topic +"\n"+ players[fd].password + "\n&";
     int n = send(fd, message.c_str(), message.size(), 0);
     if (n == -1 || n < static_cast<int>(message.size())) {
-      perror("send");
-      deletePlayer(fd);
+        perror("send");
+        deletePlayer(fd);
     }
 }
 
 // Funkcja losujaca haslo dla pokoju, ustawia rowniez kategorie dla hasla
 void setNewPassword() {
-    //srand(time(nullptr));
     int num = uniform_int_distribution<>(0, topicsNumber - 1)(rng);
     topic = topics[num];
-    //int num = rand() % topicsNumber;
-    //topic = topics[num];
 
     ifstream file("topics/" + topic + ".txt");
     if (!file) {
@@ -165,8 +181,6 @@ void setNewPassword() {
     file.close();
 
     if (!passwords.empty()) {
-        //int passwordIndex = rand() % passwords.size();
-        //pass = passwords[passwordIndex];
         uniform_int_distribution<> dist(0, passwords.size() - 1);
         int passwordIndex = dist(rng);
         pass = passwords[passwordIndex];
@@ -184,6 +198,7 @@ void setNewPassword() {
 // zresetowanie wynikow graczy - stanu wisielca, ustawienie statusu gracza jako aktywny, usuniecie uzytych liter
 void resetGame() {
     //wybieranie nowego hasla i kategorii
+    playersInGame = 0;
     setNewPassword();
     lastTime = chrono::steady_clock::now();
     countdown = 90 * 1000;
@@ -199,9 +214,10 @@ void resetGame() {
             string message = "3;" + to_string(players[pair.first].hangman) + "&";
             int n = send(pair.first, message.c_str(), message.size(), 0);
             if (n == -1 || n < static_cast<int>(message.size())) {
-              perror("send");
-              deletePlayer(pair.first);
+                perror("send");
+                deletePlayer(pair.first);
             }
+            playersInGame++;
         }
     }
     broadcast(to_string(countdown / 1000), -1, 4);
@@ -213,15 +229,33 @@ void playerLeft(int clientFd) {
     if (players[clientFd].playerStatus != 2) {
         activePlayers--;
     }
-    //jezeli w pokoju nie ma aktywnych graczy to przywroc ustawienia poczatkowe
-    if (activePlayers == 0) {
-        countdown = 90*1000;
-        startGame = false;
+    //cout<<"playerStatus "<<players[clientFd].playerStatus<<" "<<playersInGame<<"\n";
+    if (players[clientFd].playerStatus == 1) {
+        playersInGame--;
     }
+
     players[clientFd].playerStatus = 2; //oznaczenie ze dany gracz znajduje sie w menu
     players[clientFd].time = -1;
     players[clientFd].hangman = 0;
     players[clientFd].score = 0;
+
+    if (activePlayers == 0 or playersInGame == 0) {
+        countdown = 90*1000;
+        startGame = false;
+        firstGuessMade = false;
+        string message;
+        message = "Witaj w poczekalni, oczekujemy aż dołączy jeszcze jeden gracz!\n";
+        broadcast(message, -1, 6);
+
+        // sprawdzamy czy mamy warunki do startu
+        if (activePlayers >= 2) {
+            resetGame();
+            lastTime = chrono::steady_clock::now();
+            startGame = true;
+        }
+        createScoreBoard();
+        return;
+    }
 
     createScoreBoard();
 }
@@ -231,55 +265,34 @@ void timeEnded() {
     for (const auto &pair : players) {
         //sprawdzamy czy dany gracz odgadnal haslo
         //jezeli gracz nie zdazyl odgadnac hasla przed uplynieciem czasu oznaczamy go jako przegranego
-        if (!(pair.second.password == pass)) {
+        if (!(pair.second.password == pass) and players[pair.first].playerStatus == 1) {
             int clinetFd = pair.first;
             message = "0; Koniec czasu! Zostałeś powieszony x.x\n&";
             int n = send(clinetFd, message.c_str(), message.size(), 0);
             if (n == -1 || n < static_cast<int>(message.size())) {
-              perror("send");
-              deletePlayer(clinetFd);
-            }
-            players[clinetFd].hangman = 7;
-            message = "3;" + to_string(players[clinetFd].hangman) + "&";
-            n = send(clinetFd, message.c_str(), message.size(), 0);
-            if (n == -1 || n < static_cast<int>(message.size())) {
                 perror("send");
                 deletePlayer(clinetFd);
             }
-            //wyslanie do klienta poprawnego hasla
-            message = "2;"+topic+"\n" + pass + "\n&";
-            n = send(clinetFd, message.c_str(), message.size(), 0);
-            if (n == -1 || n < static_cast<int>(message.size())) {
-                perror("send");
-                deletePlayer(clinetFd);
-            }
-
         }
     }
     createScoreBoard();
     //zatrzymanie gry
-    cout << activePlayers << endl;
+    //cout << activePlayers << endl;
     if (activePlayers >= 2){
         resetGame();
         lastTime = chrono::steady_clock::now();
         startGame = true;
-        }else {
-            startGame = false;
-            //przekierowanie graczy do poczekalni
-            message = "Witaj w poczekalni, oczekujemy aż dołączy jeszcze jeden gracz!\n";
-            broadcast(message, -1, 6);
-        }
+    }else {
+        startGame = false;
+        //przekierowanie graczy do poczekalni
+        message = "Witaj w poczekalni, oczekujemy aż dołączy jeszcze jeden gracz!\n";
+        broadcast(message, -1, 6);
+    }
 }
 //Funkcja sprawdzajaca czy wszyscy gracze przegrali/wygrali
 void checkLosers() {
-    cout << "CZY WSZYSCY PRZEGRALI?" << endl;
+    //cout << "CZY WSZYSCY PRZEGRALI?" << endl;
     for (const auto &pair : players) {
-        /*cout << "GRACZ: " << pair.second.playerStatus << " " << pair.second.nickname
-             << ", Wisielec: " << pair.second.hangman
-             << ", Hasło zgadnięte: "<<" "<<pair.second.password<<" "
-             << (pair.second.password == pass)<<" "<<pair.second.password.size()
-        <<" "<<pass.size() << endl;
-        */
         //sprawdzenie czy dany gracz bierze udzial w rundzie
         if (pair.second.playerStatus == 1) {
             bool check = (pair.second.password == pass); //zmienna inforomujaca ze gracz odgadl haslo
@@ -290,9 +303,7 @@ void checkLosers() {
             }
         }
     }
-   // cout << "Wszyscy gracze przegrali. Resetowanie gry." << endl;
     timeEnded();
-   // startGame = false;
 }
 
 
@@ -366,15 +377,16 @@ void updatePassword(char ans, int fd) {
             players[fd].score += bonus;
         } else {
             auto elapsed = chrono::duration_cast<chrono::milliseconds>(currentTime - firstCorrectGuessTime).count();
-            if (elapsed <= 100) {
-                players[fd].score += 2 * bonus;
-            } else {
+            //cout<<"elapsed "<<elapsed<<" ms "<<answerDelay<<"ms \n";
+            if (elapsed <= answerDelay) {
                 players[fd].score += bonus;
+            } else {
+                // Zmniejszenie bonusu dla kolejnych graczy
+                bonus = bonus / 2;
+                players[fd].score += bonus;
+                firstCorrectGuessTime = currentTime;
             }
         }
-
-        // Zmniejszenie bonusu dla kolejnych graczy
-        bonus = bonus / 2;
 
         // Aktualizacja rankingu
         createScoreBoard();
@@ -437,8 +449,8 @@ void handleClientInput(int clientFd, const string &input) {
             //zmieniam status gracza na obecny w pokoju
             players[clientFd].playerStatus = 0;
             //zwiekszam liczbe graczy gotowych do rozpoczecia
-            activePlayers ++;
             broadcast("Gracz " + players[clientFd].nickname + " dołączył do gry.\n", clientFd, 0);
+            activePlayers ++;
             if (!startGame and activePlayers >=2) {
                 resetGame();
                 lastTime = chrono::steady_clock::now();
@@ -502,12 +514,14 @@ int runMainLoop() {
 
     if (bind(serverFd, (struct sockaddr *)&serverAddr, sizeof(serverAddr)) == -1) {
         perror("bind");
+        shutdown(serverFd, SHUT_RDWR);
         close(serverFd);
         return 1;
     }
 
     if (listen(serverFd, SOMAXCONN) == -1) {
         perror("listen");
+        shutdown(serverFd, SHUT_RDWR);
         close(serverFd);
         return 1;
     }
@@ -515,6 +529,7 @@ int runMainLoop() {
     int efd = epoll_create1(0);
     if (efd == -1) {
         perror("epoll_create1");
+        shutdown(serverFd, SHUT_RDWR);
         close(serverFd);
         return 1;
     }
@@ -525,6 +540,7 @@ int runMainLoop() {
 
     if (epoll_ctl(efd, EPOLL_CTL_ADD, serverFd, &event) == -1) {
         perror("epoll_ctl");
+        shutdown(serverFd, SHUT_RDWR);
         close(serverFd);
         close(efd);
         return 1;
@@ -538,22 +554,18 @@ int runMainLoop() {
             auto currentTime = chrono::steady_clock::now();
             auto elapsed = chrono::duration_cast<chrono::milliseconds>(currentTime - lastTime).count();
             if (elapsed >= 1000) { // Aktualizacja co sekundę
-                //countdown -= elapsed;
-                //lastTime = currentTime;
                 int secondsToSubtract = elapsed / 1000;
                 countdown = max(0, countdown - secondsToSubtract * 1000);
                 lastTime += chrono::milliseconds(secondsToSubtract * 1000);
                 if (countdown <= 0) {
                     timeEnded();
                 } else {
-                    //int conv = round(countdown / 1000);
-                    //broadcast(to_string(conv), -1, 4);
                     broadcast(to_string(countdown / 1000), -1, 4);
                 }
             }
         }
 
-        int numEvents = epoll_wait(efd, events, MAX_EVENTS, 1000); // Wait 1 mili second
+        int numEvents = epoll_wait(efd, events, MAX_EVENTS, 1000);
         if (numEvents == -1) {
             perror("epoll_wait");
             break;
@@ -574,6 +586,7 @@ int runMainLoop() {
 
                 if (epoll_ctl(efd, EPOLL_CTL_ADD, clientFd, &event) == -1) {
                     perror("epoll_ctl: client");
+                    shutdown(clientFd, SHUT_RDWR);
                     close(clientFd);
                     continue;
                 }
@@ -582,8 +595,8 @@ int runMainLoop() {
                 const char *welcome = "01;Witaj! Wprowadź swój nick!: &";
                 int n = send(clientFd, welcome, strlen(welcome), 0);
                 if (n == -1 || n < static_cast<int>(strlen(welcome))) {
-                  perror("send handleClientInput: ");
-                  deletePlayer(clientFd);
+                    perror("send handleClientInput: ");
+                    deletePlayer(clientFd);
                 }
                 createScoreBoard();
             } else {
@@ -602,25 +615,24 @@ int runMainLoop() {
                     deletePlayer(clientFd);
                     createScoreBoard();
                 } else {
-                   	//string input(buffer, bytesRead);
-                    //handleClientInput(clientFd, input);
                     static unordered_map<int, string> messageBuffers;
 
                     messageBuffers[clientFd] += string(buffer, bytesRead);
 
-    				size_t semicolonPos;
+                    size_t semicolonPos;
                     while ((semicolonPos = messageBuffers[clientFd].find(';')) != string::npos) {
-				        string message = messageBuffers[clientFd].substr(0, semicolonPos);
-						cout<<message<<endl;
-        				messageBuffers[clientFd].erase(0, semicolonPos + 1);
+                        string message = messageBuffers[clientFd].substr(0, semicolonPos);
+                        //cout<<message<<endl;
+                        messageBuffers[clientFd].erase(0, semicolonPos + 1);
 
-        				handleClientInput(clientFd, message);
-    				}
+                        handleClientInput(clientFd, message);
+                    }
                 }
             }
         }
     }
 
+    shutdown(serverFd, SHUT_RDWR);
     close(serverFd);
     close(efd);
     return 1;
